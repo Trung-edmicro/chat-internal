@@ -1,0 +1,5 @@
+{
+  "name": "SecureSignal - Internal E2EE Chat",
+  "description": "A peer-to-peer, end-to-end encrypted chat application designed for internal networks. Uses WebRTC for direct data transfer and Web Crypto API for AES-GCM encryption, ensuring network administrators cannot inspect message content.",
+  "requestFramePermissions": []
+}
