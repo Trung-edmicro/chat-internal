@@ -6,7 +6,8 @@ export enum MessageType {
 
 export interface Message {
   id: string;
-  sender: 'me' | 'peer' | 'system' | 'ai';
+  sender: string; // 'me', 'peer', 'system', 'ai', or peerId for group
+  senderName?: string; // Display name
   content: string;
   timestamp: number;
   type: MessageType;
@@ -17,7 +18,10 @@ export interface ConnectionState {
   status: 'disconnected' | 'connecting' | 'connected' | 'error';
   peerId: string | null;
   error?: string;
-  secure: boolean; // True if keys exchanged
+  isHost: boolean;
+  roomId: string | null;
+  connectedPeers: string[]; // List of connected peer IDs
+  secure: boolean; // True if keys exchanged (for group, maybe false)
 }
 
 // Define global for PeerJS loaded via CDN

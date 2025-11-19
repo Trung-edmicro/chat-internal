@@ -10,6 +10,8 @@ interface ChatInterfaceProps {
   onDisconnect: () => void;
   peerId: string;
   isSecure: boolean;
+  connectedPeers?: string[];
+  isHost?: boolean;
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
@@ -18,7 +20,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onClear,
   onDisconnect,
   peerId,
-  isSecure
+  isSecure,
+  connectedPeers = [],
+  isHost = false
 }) => {
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -53,17 +57,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {/* Header */}
       <div className="h-16 border-b border-cyber-700 flex items-center justify-between px-4 bg-cyber-800/50 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center space-x-3">
-          <div className={`w-3 h-3 rounded-full ${isSecure ? 'bg-cyber-accent shadow-[0_0_10px_#10b981]' : 'bg-red-500 animate-pulse'}`}></div>
+          <div className={`w-3 h-3 rounded-full ${isSecure ? 'bg-cyber-accent shadow-[0_0_10px_#10b981]' : 'bg-yellow-500 animate-pulse'}`}></div>
           <div>
-            <h2 className="font-bold text-gray-100">Secure Tunnel</h2>
+            <h2 className="font-bold text-gray-100">Secure Group Chat</h2>
             <p className="text-[10px] text-gray-400 font-mono flex items-center">
-              {isSecure ? (
-                <span className="text-cyber-accent flex items-center">
-                   <ShieldCheck className="w-3 h-3 mr-1" /> ENCRYPTED
-                </span>
-              ) : 'HANDSHAKING...'} 
+              {isHost ? 'Host' : 'Member'} 
               <span className="mx-2 text-cyber-600">|</span>
-              PEER: {peerId.substring(0, 8)}...
+              ROOM: {peerId.substring(0, 8)}...
+              <span className="mx-2 text-cyber-600">|</span>
+              {connectedPeers.length + 1} members
             </p>
           </div>
         </div>
@@ -105,7 +107,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-gray-600 space-y-4 opacity-50">
                 <Lock className="w-12 h-12" />
-                <p>Hệ thống đã sẵn sàng. Tin nhắn được mã hóa E2EE.</p>
+                <p>Hệ thống đã sẵn sàng. Tin nhắn được mã hóa.</p>
             </div>
         )}
 
@@ -121,6 +123,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }
 
             const isMe = msg.sender === 'me';
+            const displayName = msg.senderName || (isMe ? 'You' : 'Peer');
             return (
                 <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] rounded-2xl p-3 ${
@@ -128,6 +131,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                         ? 'bg-cyber-accent text-cyber-900 rounded-br-none' 
                         : 'bg-cyber-700 text-gray-100 rounded-bl-none border border-cyber-600'
                     }`}>
+                        {!isMe && (
+                            <div className="text-xs text-gray-400 mb-1 font-medium">
+                                {displayName}
+                            </div>
+                        )}
                         <p className="whitespace-pre-wrap break-words text-sm">{msg.content}</p>
                         <div className="flex justify-end items-center mt-1 space-x-1 opacity-70">
                            {msg.isEncrypted && <Lock className="w-3 h-3" />}
@@ -146,7 +154,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
          <div className="flex justify-between items-center mb-2">
              <div className="text-[10px] text-gray-500 flex items-center">
                 <div className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1"></div>
-                P2P Connection Active
+                Group Chat Active ({connectedPeers.length + 1} members)
              </div>
              <button 
                 onClick={handleAnalyze}

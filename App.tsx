@@ -15,14 +15,28 @@ const App: React.FC = () => {
   const [connectionState, setConnectionState] = useState<ConnectionState>({
     status: 'disconnected',
     peerId: null,
-    secure: false
+    secure: false,
+    isHost: false,
+    roomId: null,
+    connectedPeers: []
   });
   const [messages, setMessages] = useState<Message[]>([]);
   
   // Refs to hold mutable objects without re-rendering
   const peerRef = useRef<any>(null);
-  const connRef = useRef<any>(null);
+  const connectionsRef = useRef<Map<string, any>>(new Map()); // peerId -> connection
   const isInitialized = useRef(false);
+
+  // Get room from URL
+  const getRoomFromUrl = () => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('room');
+  };
+
+  // Generate anonymous name
+  const getAnonymousName = (peerId: string) => {
+    return `Anonymous-${peerId.substring(0, 4)}`;
+  };
 
   // Initialize PeerJS
   useEffect(() => {
@@ -47,11 +61,27 @@ const App: React.FC = () => {
       peer.on('open', (id: string) => {
         console.log('My peer ID is: ' + id);
         localStorage.setItem(STORAGE_KEY_PEER_ID, id); // Save for next time
-        setConnectionState(prev => ({ ...prev, status: 'disconnected', peerId: id }));
+        
+        const roomId = getRoomFromUrl();
+        const isHost = !roomId || roomId === id;
+        
+        setConnectionState(prev => ({ 
+          ...prev, 
+          status: 'disconnected', 
+          peerId: id,
+          isHost,
+          roomId: isHost ? id : roomId,
+          connectedPeers: []
+        }));
+
+        if (!isHost) {
+          // Join as member
+          connectToHost(roomId);
+        }
       });
 
       peer.on('connection', (conn: any) => {
-        handleConnection(conn);
+        handleIncomingConnection(conn);
       });
 
       peer.on('error', (err: any) => {
@@ -78,117 +108,133 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Handle incoming connection or established connection
-  const handleConnection = (conn: any) => {
-    setConnectionState(prev => ({ ...prev, status: 'connecting' }));
+  // Handle incoming connection (for host)
+  const handleIncomingConnection = (conn: any) => {
+    console.log('Incoming connection from:', conn.peer);
     
-    conn.on('open', async () => {
-      connRef.current = conn;
+    conn.on('open', () => {
+      connectionsRef.current.set(conn.peer, conn);
+      setConnectionState(prev => ({
+        ...prev,
+        connectedPeers: [...prev.connectedPeers, conn.peer]
+      }));
+      addSystemMessage(`${getAnonymousName(conn.peer)} đã tham gia phòng.`);
       
-      // Immediately start Key Exchange
-      // 1. Generate my key pair
-      const myPublicKey = await cryptoService.generateKeyPair();
-      
-      // 2. Send my public key to peer
-      conn.send({
-        type: 'KEY_EXCHANGE',
-        payload: myPublicKey
+      // Send existing messages to new peer
+      messages.forEach(msg => {
+        if (msg.type === MessageType.TEXT) {
+          conn.send({
+            type: 'MESSAGE',
+            payload: msg
+          });
+        }
       });
-      
-      setConnectionState(prev => ({ ...prev, status: 'connected' }));
-      addSystemMessage(`Đã kết nối với ${conn.peer}. Đang thiết lập mã hóa...`);
     });
 
-    conn.on('data', async (data: any) => {
-      await handleData(data);
+    conn.on('data', (data: any) => {
+      handleData(conn.peer, data);
     });
 
     conn.on('close', () => {
-      setConnectionState(prev => ({ ...prev, status: 'disconnected', secure: false }));
-      addSystemMessage("Đối phương đã ngắt kết nối.");
-      connRef.current = null;
+      connectionsRef.current.delete(conn.peer);
+      setConnectionState(prev => ({
+        ...prev,
+        connectedPeers: prev.connectedPeers.filter(id => id !== conn.peer)
+      }));
+      addSystemMessage(`${getAnonymousName(conn.peer)} đã rời phòng.`);
     });
     
     conn.on('error', () => {
-        addSystemMessage("Lỗi đường truyền.");
-    })
+      addSystemMessage(`Lỗi kết nối với ${getAnonymousName(conn.peer)}.`);
+    });
+  };
+
+  // Connect to host (for members)
+  const connectToHost = (hostId: string) => {
+    if (!peerRef.current) return;
+    
+    setConnectionState(prev => ({ ...prev, status: 'connecting' }));
+    
+    const conn = peerRef.current.connect(hostId);
+    
+    conn.on('open', () => {
+      connectionsRef.current.set(hostId, conn);
+      setConnectionState(prev => ({
+        ...prev,
+        status: 'connected',
+        connectedPeers: [hostId]
+      }));
+      addSystemMessage(`Đã tham gia phòng chat nhóm.`);
+    });
+
+    conn.on('data', (data: any) => {
+      handleData(hostId, data);
+    });
+
+    conn.on('close', () => {
+      setConnectionState(prev => ({
+        ...prev,
+        status: 'disconnected',
+        connectedPeers: []
+      }));
+      addSystemMessage("Đã ngắt kết nối khỏi phòng.");
+      connectionsRef.current.clear();
+    });
+    
+    conn.on('error', () => {
+      addSystemMessage("Lỗi kết nối đến host.");
+      setConnectionState(prev => ({ ...prev, status: 'disconnected' }));
+    });
   };
 
   // Handle incoming data
-  const handleData = async (data: any) => {
-    if (data.type === 'KEY_EXCHANGE') {
-      // Peer sent their public key.
-      // We accept it and derive the shared secret.
-      const success = await cryptoService.deriveSharedSecret(data.payload);
-      if (success) {
-        setConnectionState(prev => ({ ...prev, secure: true }));
-        addSystemMessage("Kênh bảo mật E2EE đã được thiết lập. Admin mạng không thể đọc tin nhắn.");
-      } else {
-        addSystemMessage("Lỗi thiết lập mã hóa. Không an toàn.");
-      }
-    } else if (data.type === 'ENCRYPTED_MESSAGE') {
-      // Decrypt incoming message
-      try {
-        const decryptedText = await cryptoService.decrypt(data.payload);
-        addMessage({
-          id: uuidv4(),
-          sender: 'peer',
-          content: decryptedText,
-          timestamp: Date.now(),
-          type: MessageType.TEXT,
-          isEncrypted: true
-        });
-      } catch (e) {
-        console.error("Decryption failed", e);
-        addSystemMessage("Nhận được tin nhắn không thể giải mã.");
-      }
+  const handleData = (fromPeer: string, data: any) => {
+    if (data.type === 'MESSAGE') {
+      const msg = data.payload;
+      // Add message from peer
+      addMessage({
+        ...msg,
+        sender: 'peer',
+        senderName: getAnonymousName(fromPeer)
+      });
+    } else if (data.type === 'BROADCAST') {
+      // Host broadcasting to members
+      const msg = data.payload;
+      addMessage({
+        ...msg,
+        sender: 'peer',
+        senderName: getAnonymousName(fromPeer)
+      });
     }
-  };
-
-  // Initiate connection
-  const connectToPeer = (targetId: string) => {
-    if (!peerRef.current) return;
-    
-    // Don't connect to self
-    if (targetId === connectionState.peerId) {
-        alert("Không thể tự kết nối với chính mình.");
-        return;
-    }
-
-    const conn = peerRef.current.connect(targetId);
-    handleConnection(conn);
   };
 
   // Send Message
   const sendMessage = async (text: string) => {
-    if (!connRef.current || !connectionState.secure) {
-      alert("Chưa có kết nối bảo mật!");
+    if (connectionState.status !== 'connected') {
+      alert("Chưa tham gia phòng!");
       return;
     }
 
-    try {
-      // Encrypt before sending
-      const encryptedData = await cryptoService.encrypt(text);
+    const msg = {
+      id: uuidv4(),
+      sender: 'me',
+      senderName: getAnonymousName(connectionState.peerId!),
+      content: text,
+      timestamp: Date.now(),
+      type: MessageType.TEXT,
+      isEncrypted: false // No encryption for group
+    };
 
-      // Send encrypted blob
-      connRef.current.send({
-        type: 'ENCRYPTED_MESSAGE',
-        payload: encryptedData
-      });
+    // Add to my UI
+    addMessage(msg);
 
-      // Add to my UI
-      addMessage({
-        id: uuidv4(),
-        sender: 'me',
-        content: text,
-        timestamp: Date.now(),
-        type: MessageType.TEXT,
-        isEncrypted: true
+    // Send to all connected peers
+    connectionsRef.current.forEach(conn => {
+      conn.send({
+        type: connectionState.isHost ? 'BROADCAST' : 'MESSAGE',
+        payload: msg
       });
-    } catch (e) {
-      console.error("Encryption failed", e);
-      addSystemMessage("Lỗi mã hóa tin nhắn.");
-    }
+    });
   };
 
   const addMessage = (msg: Message) => {
@@ -206,12 +252,16 @@ const App: React.FC = () => {
   };
 
   const handleDisconnect = () => {
-      if (connRef.current) {
-          connRef.current.close();
-      }
-      setConnectionState(prev => ({...prev, status: 'disconnected', secure: false}));
-      setMessages([]);
-  }
+    connectionsRef.current.forEach(conn => conn.close());
+    connectionsRef.current.clear();
+    setConnectionState(prev => ({
+      ...prev,
+      status: 'disconnected',
+      connectedPeers: [],
+      secure: false
+    }));
+    setMessages([]);
+  };
 
   // Render
   if (connectionState.status === 'connected' || connectionState.status === 'connecting') {
@@ -221,8 +271,10 @@ const App: React.FC = () => {
         onSendMessage={sendMessage}
         onClear={() => setMessages([])}
         onDisconnect={handleDisconnect}
-        peerId={connRef.current?.peer || ''}
+        peerId={connectionState.roomId || ''}
         isSecure={connectionState.secure}
+        connectedPeers={connectionState.connectedPeers}
+        isHost={connectionState.isHost}
       />
     );
   }
@@ -230,8 +282,10 @@ const App: React.FC = () => {
   return (
     <InitialScreen 
       myPeerId={connectionState.peerId}
-      onConnect={connectToPeer}
+      onConnect={(id) => connectToHost(id)} // For manual connect, but now auto
       status={connectionState.status}
+      isGroup={true}
+      roomId={connectionState.roomId}
     />
   );
 };
