@@ -2,7 +2,9 @@
 export default {
   content: [
     "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
+    "./*.{js,ts,jsx,tsx}",
+    "./components/**/*.{js,ts,jsx,tsx}",
+    "./services/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
@@ -12,7 +14,7 @@ export default {
           800: '#111827',
           700: '#1f2937',
           600: '#374151',
-          accent: '#10b981', // Emerald 500
+          accent: '#10b981',
           danger: '#ef4444',
         }
       },
