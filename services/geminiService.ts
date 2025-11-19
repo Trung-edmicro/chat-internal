@@ -1,12 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 
 // Initialize GenAI Client
-// Note: process.env.API_KEY is injected by the environment
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Note: import.meta.env.VITE_GEMINI_API_KEY is injected by the environment
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
 export const analyzeConversation = async (messages: string[]): Promise<string> => {
   try {
-    if (!process.env.API_KEY) {
+    if (!import.meta.env.VITE_GEMINI_API_KEY) {
         return "Error: API Key not configured.";
     }
 
@@ -35,7 +35,7 @@ export const analyzeConversation = async (messages: string[]): Promise<string> =
 
 export const quickReplySuggestion = async (lastMessage: string): Promise<string[]> => {
     try {
-        if (!process.env.API_KEY) return [];
+        if (!import.meta.env.VITE_GEMINI_API_KEY) return [];
         
         const prompt = `Đề xuất 3 câu trả lời ngắn gọn (dưới 10 từ) cho tin nhắn này bằng tiếng Việt: "${lastMessage}"`;
         
